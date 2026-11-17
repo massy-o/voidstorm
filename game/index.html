@@ -163,6 +163,21 @@ cv.addEventListener('touchstart', (e) => { e.preventDefault(); const t = e.touch
 cv.addEventListener('touchmove', (e) => { e.preventDefault(); const t = e.touches[0]; const p = canvasPos(t); mouse.x = p.x; mouse.y = p.y; }, { passive: false });
 cv.addEventListener('touchend', (e) => { e.preventDefault(); mouse.down = false; }, { passive: false });
 
+/* ---------- pre-rendered character sprites (modelled in Blender; see dev/build_sprites.py) ---------- */
+const SPR = {};
+let sprReady = 0, sprTotal = 0;
+function loadSprite(name, file) {
+  sprTotal++;
+  const img = new Image();
+  img.onload = () => { sprReady++; };
+  img.onerror = () => { sprReady++; };
+  img.src = 'sprites/' + file;
+  SPR[name] = img;
+}
+loadSprite('player', 'player.png');
+for (const t of ['chaser', 'mini', 'orbiter', 'warden']) { loadSprite(t + '0', t + '0.png'); loadSprite(t + '1', t + '1.png'); }
+for (const t of ['spinner', 'splitter', 'sniper', 'charger']) loadSprite(t, t + '.png');
+
 /* ---------- particles & pickups ---------- */
 function burst(x, y, color, n, spd) {
   if (parts.length > 460) return; // particle budget keeps the frame rate safe
@@ -754,37 +769,27 @@ function drawPlayer() {
   ctx.save();
   ctx.translate(player.x, player.y);
   ctx.rotate(player.angle);
-  ctx.globalAlpha = blink ? 0.35 : 1;
-  ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 13;
-  ctx.fillStyle = player.dashTime > 0 ? '#aef7ff' : '#0b2b3a';
-  ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 1.8;
-  // tail fins and swept wings: a proper little fighter silhouette, not an arrowhead
-  ctx.beginPath(); ctx.moveTo(-7, -4); ctx.lineTo(-17, -13); ctx.lineTo(-14, -1); ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(-7, 4); ctx.lineTo(-17, 13); ctx.lineTo(-14, 1); ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(3, -5); ctx.lineTo(-8, -16); ctx.lineTo(-13, -4); ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(3, 5); ctx.lineTo(-8, 16); ctx.lineTo(-13, 4); ctx.closePath(); ctx.fill(); ctx.stroke();
-  // hull
-  ctx.beginPath();
-  ctx.moveTo(19, 0);
-  ctx.quadraticCurveTo(8, 9.5, -10, 8);
-  ctx.quadraticCurveTo(-15, 0, -10, -8);
-  ctx.quadraticCurveTo(8, -9.5, 19, 0);
-  ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.shadowBlur = 0;
-  // glass cockpit dome, and inside it the penguin pilot — a bow to the great parody shooters
-  circ(3, 0, 7.8); ctx.fillStyle = 'rgba(160,230,255,0.30)'; ctx.fill();
-  ctx.strokeStyle = 'rgba(230,250,255,0.85)'; ctx.lineWidth = 1.2; circ(3, 0, 7.8); ctx.stroke();
-  circ(3, 0.8, 5.3); ctx.fillStyle = '#f4fbff'; ctx.fill();
-  ctx.fillStyle = '#12222e';
-  circ(1.1, -1.4, 0.95); ctx.fill();
-  circ(4.9, -1.4, 0.95); ctx.fill();
-  ctx.fillStyle = '#ffb300';
-  ctx.beginPath(); ctx.moveTo(1.5, 1.3); ctx.lineTo(4.5, 1.3); ctx.lineTo(3, 3.5); ctx.closePath(); ctx.fill();
-  // engine flame
-  const fl = 6 + Math.sin(G.time * 31) * 2.5 + (Math.hypot(player.vx, player.vy) > 40 ? 5 : 0);
+  // engine flame behind the hull
+  const fl = 7 + Math.sin(G.time * 31) * 2.5 + (Math.hypot(player.vx, player.vy) > 40 ? 6 : 0);
   ctx.fillStyle = 'rgba(255,150,40,0.9)';
-  ctx.beginPath(); ctx.moveTo(-13, 3.2); ctx.lineTo(-13 - fl, 0); ctx.lineTo(-13, -3.2); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-14, 3.4); ctx.lineTo(-14 - fl, 0); ctx.lineTo(-14, -3.4); ctx.closePath(); ctx.fill();
+  ctx.globalAlpha = blink ? 0.35 : 1;
+  const img = SPR.player;
+  if (img && img.naturalWidth) {
+    ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 14;
+    const S = 64;
+    ctx.drawImage(img, -S / 2, -S / 2, S, S);
+    ctx.shadowBlur = 0;
+  }
   ctx.restore();
+}
+const DS = { chaser: 4.4, mini: 4.4, spinner: 3.6, splitter: 3.8, sniper: 3.9, charger: 3.9, orbiter: 3.9, warden: 3.9 };
+function spriteFor(type) {
+  if (type === 'chaser' || type === 'mini' || type === 'orbiter' || type === 'warden') {
+    const rate = type === 'orbiter' ? 7 : 2.2; // bees flap fast; tentacles sway slowly
+    return SPR[type + (Math.floor(G.time * rate) % 2)];
+  }
+  return SPR[type];
 }
 function drawEnemies() {
   for (const e of enemies) {
@@ -796,177 +801,25 @@ function drawEnemies() {
       const ws = 1 - wf * 0.55;
       ctx.scale(ws, ws);
     }
-    // characters draw a touch larger than their hit circles: kinder to the player, kinder to the eye
-    if (e.type !== 'warden') ctx.scale(1.18, 1.18);
-    // Character cast, in the spirit of the great parody shooters: every type is a creature
-    // with a face, not a polygon. F = the type's neon accent, BODY = its dark shell.
-    const F = e.flash > 0 ? '#ffffff' : e.color;
-    const BODY = e.flash > 0 ? 'rgba(255,255,255,0.92)' : 'rgba(12,10,26,0.88)';
-    const r = e.r, t = G.time;
-    ctx.shadowColor = e.color; ctx.shadowBlur = 12;
-    ctx.lineWidth = 2; ctx.strokeStyle = F; ctx.fillStyle = BODY;
-    if (e.type === 'chaser' || e.type === 'mini') {
-      // octopus: wavy tentacles, angry eyes — the mini is the same creature, younger
-      ctx.beginPath();
-      const legs = e.type === 'mini' ? 4 : 5;
-      for (let k = 0; k < legs; k++) {
-        const bx = (k - (legs - 1) / 2) * r * 0.36;
-        ctx.moveTo(bx - r * 0.13, r * 0.5);
-        ctx.quadraticCurveTo(bx + Math.sin(t * 6 + k * 1.4 + e.rot) * r * 0.24, r * 1.02, bx + r * 0.15, r * (0.98 + 0.1 * Math.sin(t * 6 + k + e.rot)));
-      }
-      ctx.stroke();
-      circ(0, 0, r * 0.92); ctx.fill(); ctx.stroke();
-      if (e.type === 'mini') {
-        ctx.fillStyle = '#fff'; circ(0, -r * 0.08, r * 0.30); ctx.fill();
-        ctx.fillStyle = '#141824'; circ(r * 0.06, -r * 0.06, r * 0.14); ctx.fill();
-        ctx.strokeStyle = F; ctx.beginPath(); ctx.arc(0, r * 0.28, r * 0.15, 0.2 * Math.PI, 0.8 * Math.PI); ctx.stroke();
-      } else {
-        ctx.fillStyle = '#fff';
-        circ(-r * 0.34, -r * 0.12, r * 0.21); ctx.fill();
-        circ(r * 0.34, -r * 0.12, r * 0.21); ctx.fill();
-        ctx.fillStyle = '#141824';
-        circ(-r * 0.29, -r * 0.10, r * 0.10); ctx.fill();
-        circ(r * 0.29, -r * 0.10, r * 0.10); ctx.fill();
-        ctx.strokeStyle = F; ctx.beginPath();
-        ctx.moveTo(-r * 0.56, -r * 0.5); ctx.lineTo(-r * 0.14, -r * 0.3);
-        ctx.moveTo(r * 0.56, -r * 0.5); ctx.lineTo(r * 0.14, -r * 0.3);
-        ctx.stroke();
-        ctx.beginPath(); ctx.arc(0, r * 0.36, r * 0.15, 0.2 * Math.PI, 0.8 * Math.PI); ctx.stroke();
-      }
-    } else if (e.type === 'spinner') {
-      // UFO: a little alien in a glass dome over a saucer with rotating rim lights
-      circ(0, -r * 0.5, r * 0.44); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#8dff6a';
-      circ(-r * 0.15, -r * 0.48, r * 0.10); ctx.fill();
-      circ(r * 0.15, -r * 0.48, r * 0.10); ctx.fill();
-      ctx.fillStyle = BODY;
-      ctx.beginPath(); ctx.ellipse(0, r * 0.14, r * 1.18, r * 0.46, 0, 0, TAU); ctx.fill(); ctx.stroke();
-      for (let k = 0; k < 5; k++) {
-        const a = e.rot + (k / 5) * TAU;
-        ctx.fillStyle = Math.sin(a) > -0.2 ? F : 'rgba(255,255,255,0.25)';
-        circ(Math.cos(a) * r * 0.92, r * 0.14 + Math.sin(a) * r * 0.3, r * 0.1); ctx.fill();
-      }
-    } else if (e.type === 'splitter') {
-      // blob parent carrying two babies: squash-and-stretch as it wobbles in
-      const sq = 1 + Math.sin(t * 3.2 + e.rot) * 0.07;
-      ctx.save(); ctx.scale(1 / Math.sqrt(sq), sq);
-      circ(-r * 0.48, -r * 0.8, r * 0.3); ctx.fill(); ctx.stroke();
-      circ(r * 0.44, -r * 0.84, r * 0.24); ctx.fill(); ctx.stroke();
-      circ(0, 0, r * 0.95); ctx.fill(); ctx.stroke();
-      ctx.strokeStyle = '#f2f7ff'; ctx.lineWidth = 1.7;
-      ctx.beginPath(); ctx.arc(-r * 0.32, -r * 0.02, r * 0.14, 1.15 * Math.PI, 1.85 * Math.PI); ctx.stroke();
-      ctx.beginPath(); ctx.arc(r * 0.32, -r * 0.02, r * 0.14, 1.15 * Math.PI, 1.85 * Math.PI); ctx.stroke();
-      ctx.fillStyle = '#141824'; circ(0, r * 0.32, r * 0.15); ctx.fill();
-      ctx.restore();
-    } else if (e.type === 'sniper') {
-      // crab: eye stalks, six legs, and one oversized cannon claw aimed at the player
-      ctx.rotate(Math.atan2(player.y - e.y, player.x - e.x));
-      ctx.beginPath();
-      for (const s of [-1, 1]) for (let k = 0; k < 3; k++) {
-        const ly = s * (r * 0.28 + k * r * 0.3);
-        ctx.moveTo(-r * 0.25, ly); ctx.lineTo(-r * 1.0, ly + s * r * 0.24);
-      }
-      ctx.stroke();
-      ctx.beginPath(); ctx.ellipse(0, 0, r * 0.95, r * 0.78, 0, 0, TAU); ctx.fill(); ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(r * 0.28, -r * 0.5); ctx.lineTo(r * 0.42, -r * 0.92);
-      ctx.moveTo(r * 0.28, r * 0.5); ctx.lineTo(r * 0.42, r * 0.92);
-      ctx.stroke();
-      ctx.fillStyle = '#fff';
-      circ(r * 0.44, -r * 0.96, r * 0.16); ctx.fill();
-      circ(r * 0.44, r * 0.96, r * 0.16); ctx.fill();
-      ctx.fillStyle = '#141824';
-      circ(r * 0.48, -r * 0.96, r * 0.07); ctx.fill();
-      circ(r * 0.48, r * 0.96, r * 0.07); ctx.fill();
-      ctx.fillStyle = BODY; circ(r * 0.88, 0, r * 0.34); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = F; ctx.fillRect(r * 0.98, -r * 0.09, r * 0.55, r * 0.18);
-      ctx.fillStyle = BODY; circ(-r * 0.55, r * 0.66, r * 0.22); ctx.fill(); ctx.stroke();
-    } else if (e.type === 'charger') {
-      // rocket pig: snout first, ears up, and a rocket pack that flares on the telegraph
-      ctx.rotate(Math.atan2(player.y - e.y, player.x - e.x));
-      if (e.tele) {
-        const fl = r * (0.7 + Math.random() * 0.5);
-        ctx.fillStyle = 'rgba(255,150,40,0.9)';
-        ctx.beginPath(); ctx.moveTo(-r * 1.05, r * 0.3); ctx.lineTo(-r * 1.05 - fl, 0); ctx.lineTo(-r * 1.05, -r * 0.3); ctx.closePath(); ctx.fill();
-      }
-      ctx.fillStyle = BODY; ctx.fillRect(-r * 1.08, -r * 0.34, r * 0.42, r * 0.68); ctx.strokeRect(-r * 1.08, -r * 0.34, r * 0.42, r * 0.68);
-      ctx.beginPath();
-      ctx.moveTo(r * 0.05, -r * 0.72); ctx.lineTo(r * 0.34, -r * 1.12); ctx.lineTo(r * 0.52, -r * 0.62); ctx.closePath(); ctx.fill(); ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(r * 0.05, r * 0.72); ctx.lineTo(r * 0.34, r * 1.12); ctx.lineTo(r * 0.52, r * 0.62); ctx.closePath(); ctx.fill(); ctx.stroke();
-      circ(0, 0, r * 0.95); ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.ellipse(r * 0.52, 0, r * 0.44, r * 0.35, 0, 0, TAU); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#141824';
-      circ(r * 0.6, -r * 0.13, r * 0.065); ctx.fill();
-      circ(r * 0.6, r * 0.13, r * 0.065); ctx.fill();
-      ctx.fillStyle = '#fff';
-      circ(r * 0.3, -r * 0.46, r * 0.15); ctx.fill();
-      circ(r * 0.3, r * 0.46, r * 0.15); ctx.fill();
-      ctx.fillStyle = '#141824';
-      circ(r * 0.34, -r * 0.46, r * 0.07); ctx.fill();
-      circ(r * 0.34, r * 0.46, r * 0.07); ctx.fill();
-    } else if (e.type === 'orbiter') {
-      // bee: flapping wings, bold stripes, a sting, and a determined little face
-      ctx.rotate(Math.atan2(player.y - e.y, player.x - e.x));
-      const wf = Math.sin(t * 32 + e.rot * 4) * 0.45;
-      ctx.fillStyle = 'rgba(220,250,255,0.5)';
-      ctx.save(); ctx.translate(-r * 0.1, -r * 0.72); ctx.rotate(-0.5 + wf);
-      ctx.beginPath(); ctx.ellipse(0, -r * 0.3, r * 0.24, r * 0.5, 0, 0, TAU); ctx.fill(); ctx.restore();
-      ctx.save(); ctx.translate(-r * 0.1, r * 0.72); ctx.rotate(0.5 - wf);
-      ctx.beginPath(); ctx.ellipse(0, r * 0.3, r * 0.24, r * 0.5, 0, 0, TAU); ctx.fill(); ctx.restore();
-      ctx.fillStyle = F;
-      ctx.beginPath(); ctx.moveTo(-r * 0.85, -r * 0.16); ctx.lineTo(-r * 1.25, 0); ctx.lineTo(-r * 0.85, r * 0.16); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = BODY; circ(0, 0, r * 0.9); ctx.fill(); ctx.stroke();
-      ctx.save(); circ(0, 0, r * 0.9); ctx.clip();
-      ctx.fillStyle = 'rgba(8,12,8,0.55)';
-      ctx.fillRect(-r * 0.18, -r, r * 0.3, 2 * r);
-      ctx.fillRect(r * 0.36, -r, r * 0.26, 2 * r);
-      ctx.restore();
-      ctx.fillStyle = '#fff';
-      circ(r * 0.52, -r * 0.3, r * 0.16); ctx.fill();
-      circ(r * 0.52, r * 0.3, r * 0.16); ctx.fill();
-      ctx.fillStyle = '#141824';
-      circ(r * 0.56, -r * 0.3, r * 0.075); ctx.fill();
-      circ(r * 0.56, r * 0.3, r * 0.075); ctx.fill();
-    } else if (e.type === 'warden') {
-      // the Warden: a giant crowned octopus, six long tentacles waving beneath it
-      ctx.beginPath();
-      for (let k = 0; k < 6; k++) {
-        const bx = (k - 2.5) * r * 0.3;
-        ctx.moveTo(bx - r * 0.1, r * 0.55);
-        ctx.quadraticCurveTo(bx + Math.sin(t * 2.6 + k * 1.1) * r * 0.3, r * 1.15, bx + r * 0.14, r * (1.25 + 0.12 * Math.sin(t * 2.6 + k * 0.9)));
-      }
-      ctx.lineWidth = 3; ctx.stroke(); ctx.lineWidth = 2;
-      circ(0, 0, r * 0.98); ctx.fill(); ctx.stroke();
-      // crown
-      ctx.fillStyle = '#ffd700'; ctx.strokeStyle = '#c9930a';
-      ctx.beginPath();
-      ctx.moveTo(-r * 0.52, -r * 0.78);
-      ctx.lineTo(-r * 0.52, -r * 1.08); ctx.lineTo(-r * 0.28, -r * 0.86);
-      ctx.lineTo(-r * 0.13, -r * 1.18); ctx.lineTo(0, -r * 0.88);
-      ctx.lineTo(r * 0.13, -r * 1.18); ctx.lineTo(r * 0.28, -r * 0.86);
-      ctx.lineTo(r * 0.52, -r * 1.08); ctx.lineTo(r * 0.52, -r * 0.78);
-      ctx.closePath(); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#ff2bd6'; circ(0, -r * 0.95, r * 0.07); ctx.fill();
-      ctx.fillStyle = '#00e5ff'; circ(-r * 0.38, -r * 0.9, r * 0.055); ctx.fill(); circ(r * 0.38, -r * 0.9, r * 0.055); ctx.fill();
-      // face
-      ctx.fillStyle = '#fff';
-      circ(-r * 0.33, -r * 0.1, r * 0.19); ctx.fill();
-      circ(r * 0.33, -r * 0.1, r * 0.19); ctx.fill();
-      ctx.fillStyle = '#141824';
-      circ(-r * 0.3, -r * 0.08, r * 0.09); ctx.fill();
-      circ(r * 0.3, -r * 0.08, r * 0.09); ctx.fill();
-      ctx.strokeStyle = F; ctx.beginPath();
-      ctx.moveTo(-r * 0.54, -r * 0.44); ctx.lineTo(-r * 0.14, -r * 0.26);
-      ctx.moveTo(r * 0.54, -r * 0.44); ctx.lineTo(r * 0.14, -r * 0.26);
-      ctx.stroke();
-      ctx.beginPath(); ctx.arc(0, r * 0.55, r * 0.2, 1.2 * Math.PI, 1.8 * Math.PI); ctx.stroke();
+    const S = e.r * (DS[e.type] || 3.1);
+    if (e.type === 'sniper' || e.type === 'charger' || e.type === 'orbiter')
+      ctx.rotate(Math.atan2(player.y - e.y, player.x - e.x)); // these creatures face their target
+    if (e.type === 'splitter') { // squash-and-stretch wobble on the sprite
+      const sq = 1 + Math.sin(G.time * 3.2 + e.rot) * 0.07;
+      ctx.scale(1 / Math.sqrt(sq), sq);
     }
-    ctx.shadowBlur = 0;
+    const img = spriteFor(e.type);
+    if (img && img.naturalWidth) {
+      ctx.save();
+      ctx.shadowColor = e.color; ctx.shadowBlur = 8;
+      if (e.flash > 0) ctx.filter = 'brightness(2.4) saturate(0.35)';
+      ctx.drawImage(img, -S / 2, -S / 2, S, S);
+      ctx.restore();
+    }
     if (e.elite) { // golden halo ring marks an elite
       ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 1.6;
       ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 10;
-      poly(0, 0, e.r + 4.5, e.sides, -e.rot * 0.8);
+      poly(0, 0, S * 0.47, e.sides, -e.rot * 0.8);
       ctx.stroke();
       ctx.shadowBlur = 0;
     }
@@ -977,7 +830,7 @@ function drawEnemies() {
       ctx.lineWidth = 2;
       ctx.setLineDash([12, 8]);
       ctx.lineDashOffset = -G.time * 26;
-      ctx.beginPath(); ctx.arc(0, 0, e.r + 13, 0, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, 0, S * 0.5 + 5, 0, TAU); ctx.stroke();
       ctx.restore();
     }
     ctx.restore();
@@ -990,10 +843,10 @@ function drawEnemies() {
       ctx.restore();
     }
     if (e.hp < e.maxhp) { // hp bar
-      const w = e.r * 2, pct = clamp(e.hp / e.maxhp, 0, 1);
-      ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(e.x - e.r, e.y - e.r - 10, w, 3.6);
+      const w = S * 0.82, pct = clamp(e.hp / e.maxhp, 0, 1);
+      ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(e.x - w / 2, e.y - S * 0.36 - 9, w, 3.6);
       ctx.fillStyle = e.type === 'warden' ? '#ff1744' : '#7cff4f';
-      ctx.fillRect(e.x - e.r, e.y - e.r - 10, w * pct, 3.6);
+      ctx.fillRect(e.x - w / 2, e.y - S * 0.36 - 9, w * pct, 3.6);
     }
   }
 }
@@ -1061,12 +914,20 @@ function drawParts() {
       ctx.fillText(p.text, p.x, p.y);
       ctx.restore();
     } else if (p.ghost) {
-      ctx.save();
-      ctx.globalAlpha = a * 0.4;
-      ctx.strokeStyle = p.color; ctx.lineWidth = 1.6;
-      poly(p.x, p.y, p.size, 3, G.time * 2);
-      ctx.stroke();
-      ctx.restore();
+      if (p.color === '#00e5ff' && SPR.player && SPR.player.naturalWidth) {
+        ctx.save();
+        ctx.globalAlpha = a * 0.38;
+        const gs = p.size * 6.4;
+        ctx.drawImage(SPR.player, p.x - gs / 2, p.y - gs / 2, gs, gs);
+        ctx.restore();
+      } else {
+        ctx.save();
+        ctx.globalAlpha = a * 0.4;
+        ctx.strokeStyle = p.color; ctx.lineWidth = 1.6;
+        poly(p.x, p.y, p.size, 3, G.time * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
     } else {
       ctx.save();
       ctx.globalAlpha = a;
@@ -1461,7 +1322,9 @@ function shotScene() {
   window.__shot_ready = true;
 }
 addEventListener('blur', () => { if (G.state === 'playing') G.state = 'paused'; });
-if (SHOT) shotScene();
+if (SHOT) {
+  const sprIv = setInterval(() => { if (sprReady >= sprTotal) { clearInterval(sprIv); shotScene(); } }, 25);
+}
 else requestAnimationFrame(frame);
 </script>
 </body>
