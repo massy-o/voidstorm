@@ -4,7 +4,7 @@
 [![rank](https://make.fun/badge/best-game-01/massy-o/voidstorm/rank.svg)](https://make.fun/bounty/best-game-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=best-game-01)
 [![reward](https://make.fun/badge/best-game-01/massy-o/voidstorm/reward.svg)](https://make.fun/bounty/best-game-01?utm_source=github&utm_medium=readme&utm_campaign=best-game-01)
 
-VOIDSTORM is a neon twin-stick arena shooter that runs in a desktop browser from static files — no build step, no network, no libraries. Pilot the last storm-core fighter against waves of rogue geometry: chasers, spinners, splitters, snipers and telegraphed chargers, with a Warden boss every fifth wave. Dash through danger, chain combos, grab weapon cores, and survive the storm.
+VOIDSTORM is a neon twin-stick arena shooter that runs in a desktop browser from static files — no build step, no network, no libraries. Pilot the last storm-core fighter against waves of rogue geometry: chasers, spinners, splitters, snipers, telegraphed chargers and orbiting gunners, with a Warden boss every fifth wave that **enrages** below a third of its hull. Some waves arrive in special formations — mini swarms, sniper lines, full encirclements — and golden **elite** enemies drop extra loot. Dash through danger, chain combos, grab weapon cores (including the piercing LANCE rail), stockpile **NOVA bombs** and detonate them with E or right-click to clear the screen, and survive the storm.
 
 Clearing a wave opens an **upgrade draft**: pick 1 of 2 from seven stackable upgrades (damage, fire rate, hull, speed, dash recharge, shield charges, pickup magnet) and build your ship as the waves escalate.
 
@@ -18,7 +18,7 @@ Serve the folder with any static file server, for example with the bundled dev s
 node serve.ts
 ```
 
-then open http://localhost:8080 and click to start. Move with WASD or the arrow keys, aim with the mouse, hold to fire, dash with Shift or Space, pause with P.
+then open http://localhost:8080 and click to start. Move with WASD or the arrow keys, aim with the mouse, hold to fire, dash with Shift or Space, detonate a NOVA bomb with E or right-click, pause with P, mute with M.
 
 ## Hand it in
 
