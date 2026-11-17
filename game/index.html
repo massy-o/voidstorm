@@ -52,6 +52,7 @@ const TAU = Math.PI * 2;
 let AC = null;
 function audio() {
   if (SHOT) return null;
+  if (typeof G !== 'undefined' && G.muted) return null;
   if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { AC = null; } }
   if (AC && AC.state === 'suspended') AC.resume();
   return AC;
@@ -100,6 +101,8 @@ const G = {
   shake: 0, hitstop: 0, flash: 0,
   waveBanner: 0, intermission: 0,
   msg: '',
+  draft: null, upgrades: {},
+  muted: false,
 };
 try { G.best = parseInt(localStorage.getItem('voidstorm_best') || '0', 10) || 0; } catch (e) { G.best = 0; }
 
@@ -109,6 +112,7 @@ const player = {
   fireCd: 0, dashCd: 0, dashTime: 0, invuln: 0,
   weapon: 'pulse', weaponTimer: 0,
   alive: true,
+  dmgMul: 1, fireMul: 1, spdMul: 1, dashMul: 1, magnet: 0, shieldN: 0,
 };
 let bullets = [];   // player bullets
 let ebullets = [];  // enemy bullets
@@ -126,9 +130,12 @@ const keys = {};
 let mouse = { x: W / 2, y: H / 4, down: false };
 addEventListener('keydown', (e) => {
   keys[e.code] = true;
+  if (e.code === 'KeyM') G.muted = !G.muted;
   if (e.code === 'Space') e.preventDefault();
   if (G.state === 'title' && (e.code === 'Enter' || e.code === 'Space')) startGame();
   else if (G.state === 'over' && (e.code === 'Enter' || e.code === 'KeyR' || e.code === 'Space')) startGame();
+  else if (G.state === 'draft' && e.code === 'Digit1') chooseDraft(0);
+  else if (G.state === 'draft' && e.code === 'Digit2') chooseDraft(1);
   else if (G.state === 'playing' && e.code === 'KeyP') G.state = 'paused';
   else if (G.state === 'paused' && (e.code === 'KeyP' || e.code === 'Enter')) G.state = 'playing';
 });
@@ -140,6 +147,9 @@ function canvasPos(e) {
 cv.addEventListener('mousemove', (e) => { const p = canvasPos(e); mouse.x = p.x; mouse.y = p.y; });
 cv.addEventListener('mousedown', (e) => {
   audio();
+  const p = canvasPos(e);
+  mouse.x = p.x; mouse.y = p.y;
+  if (G.state === 'draft') { handleDraftClick(p.x, p.y); return; }
   mouse.down = true;
   if (G.state === 'title' || G.state === 'over') startGame();
   else if (G.state === 'paused') G.state = 'playing';
@@ -151,6 +161,7 @@ cv.addEventListener('touchend', (e) => { e.preventDefault(); mouse.down = false;
 
 /* ---------- particles & pickups ---------- */
 function burst(x, y, color, n, spd) {
+  if (parts.length > 460) return; // particle budget keeps the frame rate safe
   for (let i = 0; i < n; i++) {
     const a = rnd(0, TAU), s = rnd(spd * 0.2, spd);
     parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rnd(0.25, 0.7), max: 0.7, color, size: rnd(1.5, 3.5) });
@@ -217,6 +228,7 @@ function spawnEnemy(type, x, y) {
 function startWave(n) {
   G.wave = n;
   G.waveBanner = 2.2;
+  player.shieldN = G.upgrades.shield || 0; // Aegis charges refresh each wave
   const isBoss = n % 5 === 0;
   if (isBoss) {
     sfx.boss();
@@ -249,6 +261,9 @@ function startGame() {
   player.hp = player.maxhp; player.alive = true;
   player.weapon = 'pulse'; player.weaponTimer = 0;
   player.fireCd = 0; player.dashCd = 0; player.dashTime = 0; player.invuln = 0;
+  player.dmgMul = 1; player.fireMul = 1; player.spdMul = 1; player.dashMul = 1;
+  player.magnet = 0; player.shieldN = 0;
+  G.upgrades = {}; G.draft = null;
   startWave(1);
 }
 function gameOver() {
@@ -264,6 +279,14 @@ function gameOver() {
 }
 function hurtPlayer(dmg) {
   if (player.invuln > 0 || player.dashTime > 0 || !player.alive) return;
+  if (player.shieldN > 0) { // Aegis charge eats the hit
+    player.shieldN--;
+    player.invuln = 1.1;
+    sfx.pickup();
+    burst(player.x, player.y, '#ffd700', 16, 210);
+    ring(player.x, player.y, '#ffd700');
+    return;
+  }
   player.hp -= dmg;
   player.invuln = 0.9;
   G.shake = Math.max(G.shake, 9);
@@ -305,18 +328,18 @@ function playerFire(dt) {
   const a = player.angle;
   if (player.weapon === 'twin') {
     const px = Math.cos(a + Math.PI / 2) * 7, py = Math.sin(a + Math.PI / 2) * 7;
-    bullets.push({ x: player.x + px, y: player.y + py, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620, r: 3.5, dmg: 1, life: 0.9, color: WEAPONS.twin.color });
-    bullets.push({ x: player.x - px, y: player.y - py, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620, r: 3.5, dmg: 1, life: 0.9, color: WEAPONS.twin.color });
-    player.fireCd = 0.15;
+    bullets.push({ x: player.x + px, y: player.y + py, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620, r: 3.5, dmg: player.dmgMul, life: 0.9, color: WEAPONS.twin.color });
+    bullets.push({ x: player.x - px, y: player.y - py, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620, r: 3.5, dmg: player.dmgMul, life: 0.9, color: WEAPONS.twin.color });
+    player.fireCd = 0.15 * player.fireMul;
   } else if (player.weapon === 'spread') {
-    for (let i = -2; i <= 2; i++) fireBullet(a + i * 0.13, 600, 1);
-    player.fireCd = 0.26;
+    for (let i = -2; i <= 2; i++) fireBullet(a + i * 0.13, 600, player.dmgMul);
+    player.fireCd = 0.26 * player.fireMul;
   } else if (player.weapon === 'rapid') {
-    fireBullet(a + rnd(-0.045, 0.045), 680, 1);
-    player.fireCd = 0.075;
+    fireBullet(a + rnd(-0.045, 0.045), 680, player.dmgMul);
+    player.fireCd = 0.075 * player.fireMul;
   } else {
-    fireBullet(a, 640, 1);
-    player.fireCd = 0.16;
+    fireBullet(a, 640, player.dmgMul);
+    player.fireCd = 0.16 * player.fireMul;
   }
   sfx.shoot();
   burst(player.x + Math.cos(a) * 18, player.y + Math.sin(a) * 18, WEAPONS[player.weapon].color, 2, 60);
@@ -343,7 +366,7 @@ function step(dt) {
   if (keys['KeyW'] || keys['ArrowUp']) my -= 1;
   if (keys['KeyS'] || keys['ArrowDown']) my += 1;
   const ml = Math.hypot(mx, my) || 1;
-  const ACC = 2400, MAXS = 265;
+  const ACC = 2400 * player.spdMul, MAXS = 265 * player.spdMul;
   player.vx += (mx / ml) * ACC * dt;
   player.vy += (my / ml) * ACC * dt;
   player.vx *= Math.pow(0.0015, dt); player.vy *= Math.pow(0.0015, dt);
@@ -353,7 +376,7 @@ function step(dt) {
   player.dashCd -= dt;
   if ((keys['ShiftLeft'] || keys['ShiftRight'] || keys['Space']) && player.dashCd <= 0 && player.dashTime <= 0) {
     const da = (mx || my) ? Math.atan2(my, mx) : player.angle;
-    player.dashTime = 0.16; player.dashCd = 1.1;
+    player.dashTime = 0.16; player.dashCd = 1.1 * player.dashMul;
     player.vx = Math.cos(da) * 880; player.vy = Math.sin(da) * 880;
     sfx.dash();
     burst(player.x, player.y, '#00e5ff', 10, 120);
@@ -472,6 +495,23 @@ function step(dt) {
     }
   }
 
+  /* enemy separation: no stacking (the Warden holds its ground) */
+  for (let i = 0; i < enemies.length; i++) {
+    for (let j = i + 1; j < enemies.length; j++) {
+      const a = enemies[i], b = enemies[j];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const d2v = dx * dx + dy * dy, min = a.r + b.r;
+      if (d2v > 0.01 && d2v < min * min) {
+        const d = Math.sqrt(d2v), push = (min - d) / 2, ux = dx / d, uy = dy / d;
+        const wa = a.type === 'warden' ? 0 : 1, wb = b.type === 'warden' ? 0 : 1, ws = wa + wb;
+        if (ws > 0) {
+          a.x -= ux * push * (wa / ws) * 2; a.y -= uy * push * (wa / ws) * 2;
+          b.x += ux * push * (wb / ws) * 2; b.y += uy * push * (wb / ws) * 2;
+        }
+      }
+    }
+  }
+
   /* bullet vs enemy */
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
@@ -495,6 +535,10 @@ function step(dt) {
     const p = pickups[i];
     p.t += dt * 4; p.life -= dt;
     if (p.life <= 0) { pickups.splice(i, 1); continue; }
+    if (player.magnet > 0 && player.alive) { // Tractor Web pulls pickups in
+      const pd = Math.hypot(player.x - p.x, player.y - p.y);
+      if (pd < player.magnet && pd > 1) { p.x += (player.x - p.x) / pd * 260 * dt; p.y += (player.y - p.y) / pd * 260 * dt; }
+    }
     if (player.alive && dist2(p.x, p.y, player.x, player.y) < (p.r + player.r + 4) * (p.r + player.r + 4)) {
       if (p.kind === 'weapon') { player.weapon = p.weapon; player.weaponTimer = 12; G.msg = WEAPONS[p.weapon].name + ' CORE ONLINE'; }
       else { player.hp = Math.min(player.maxhp, player.hp + 26); G.msg = '+26 HULL'; }
@@ -508,13 +552,47 @@ function step(dt) {
   /* wave clear */
   if (enemies.length === 0 && G.state === 'playing') {
     G.intermission -= dt;
-    if (G.intermission <= 0) {
-      G.score += 250; // wave clear bonus
-      startWave(G.wave + 1);
-      G.intermission = 0.8;
-    }
+    if (G.intermission <= 0) openDraft();
   } else {
     G.intermission = 0.8;
+  }
+}
+
+/* ---------- upgrade draft (between waves) ---------- */
+const UPGRADES = [
+  { id: 'dmg',    name: 'OVERCHARGE',   desc: 'Bullet damage +50%',              color: '#ff3860', apply() { player.dmgMul += 0.5; } },
+  { id: 'rate',   name: 'RAPID CYCLER', desc: 'Fire rate +15%',                  color: '#ff2bd6', apply() { player.fireMul = Math.max(0.5, player.fireMul * 0.85); } },
+  { id: 'hull',   name: 'HULL PLATING', desc: 'Max hull +25, repair 25',         color: '#7cff4f', apply() { player.maxhp += 25; player.hp = Math.min(player.maxhp, player.hp + 25); } },
+  { id: 'speed',  name: 'ION THRUSTERS', desc: 'Move speed +12%',                color: '#00e5ff', apply() { player.spdMul += 0.12; } },
+  { id: 'dash',   name: 'PHASE DRIVE',  desc: 'Dash recharges 20% faster',       color: '#4fc3ff', apply() { player.dashMul = Math.max(0.45, player.dashMul * 0.8); } },
+  { id: 'shield', name: 'AEGIS CELL',   desc: '+1 shield per wave, blocks a hit', color: '#ffd700', apply() { player.shieldN += 1; } },
+  { id: 'magnet', name: 'TRACTOR WEB',  desc: 'Pickups are pulled toward you',   color: '#b967ff', apply() { player.magnet += 110; } },
+];
+function openDraft() {
+  G.score += 250; // wave clear bonus
+  const pool = UPGRADES.slice();
+  const a = pool.splice(rndi(0, pool.length - 1), 1)[0];
+  const b = pool.splice(rndi(0, pool.length - 1), 1)[0];
+  G.draft = [a, b];
+  G.state = 'draft';
+  sfx.wave();
+}
+function chooseDraft(i) {
+  if (G.state !== 'draft' || !G.draft || !G.draft[i]) return;
+  const u = G.draft[i];
+  u.apply();
+  G.upgrades[u.id] = (G.upgrades[u.id] || 0) + 1;
+  G.draft = null;
+  G.state = 'playing';
+  G.intermission = 0.8;
+  sfx.pickup();
+  startWave(G.wave + 1);
+}
+function handleDraftClick(x, y) {
+  if (!G.draftRects) return;
+  for (let i = 0; i < G.draftRects.length; i++) {
+    const r = G.draftRects[i];
+    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) { chooseDraft(i); return; }
   }
 }
 /* ---------- rendering ---------- */
@@ -752,6 +830,21 @@ function drawHUD() {
     ctx.lineWidth = 24;
     ctx.strokeRect(0, 0, W, H);
   }
+  // owned upgrades + shield charges
+  const upNames = { dmg: 'DMG', rate: 'RATE', hull: 'HULL', speed: 'SPD', dash: 'DASH', shield: 'SHLD', magnet: 'MAG' };
+  const ups = Object.keys(G.upgrades).map((k) => upNames[k] + '×' + G.upgrades[k]).join('  ');
+  if (ups) {
+    ctx.textAlign = 'right';
+    ctx.fillStyle = 'rgba(200,240,255,0.65)';
+    ctx.font = '12px "Segoe UI", sans-serif';
+    ctx.fillText(ups, W - 16, H - 12);
+  }
+  if (player.shieldN > 0) {
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 12px "Segoe UI", sans-serif';
+    ctx.fillText('◈ SHIELD ×' + player.shieldN, W - 16, 80);
+  }
   ctx.restore();
   // wave banner
   if (G.waveBanner > 0 && G.state === 'playing') {
@@ -788,7 +881,7 @@ function drawTitle() {
   ctx.fillText('Chain combos, seize weapon cores, and down the WARDEN every 5th wave.', W / 2, H * 0.36 + 100);
   ctx.fillStyle = 'rgba(160,220,245,0.7)';
   ctx.font = '13px "Segoe UI", sans-serif';
-  ctx.fillText('WASD / ARROWS — move      MOUSE — aim      HOLD CLICK — fire      SHIFT / SPACE — dash      P — pause', W / 2, H * 0.36 + 138);
+  ctx.fillText('WASD / ARROWS — move      MOUSE — aim      HOLD CLICK — fire      SHIFT / SPACE — dash      P — pause      M — mute', W / 2, H * 0.36 + 138);
   ctx.fillStyle = '#7cff4f';
   ctx.font = 'bold 21px "Segoe UI", sans-serif';
   ctx.globalAlpha = 0.6 + 0.4 * Math.sin(G.time * 4);
@@ -829,6 +922,57 @@ function drawOver() {
   ctx.globalAlpha = 1;
   ctx.restore();
 }
+function drawDraft() {
+  ctx.save();
+  ctx.fillStyle = 'rgba(2,4,12,0.62)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#eafcff';
+  ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 18;
+  ctx.font = 'bold 36px "Segoe UI", sans-serif';
+  ctx.fillText('WAVE ' + G.wave + ' CLEARED', W / 2, H * 0.24);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(205,240,255,0.85)';
+  ctx.font = '15px "Segoe UI", sans-serif';
+  ctx.fillText('Choose an upgrade — click a card or press 1 / 2', W / 2, H * 0.24 + 30);
+  const cw = 302, ch = 158, gap = 28;
+  const x0 = W / 2 - cw - gap / 2, y0 = H * 0.36;
+  G.draftRects = [];
+  for (let i = 0; i < 2; i++) {
+    const u = G.draft[i];
+    if (!u) continue;
+    const x = x0 + i * (cw + gap);
+    G.draftRects.push({ x, y: y0, w: cw, h: ch });
+    const hover = mouse.x >= x && mouse.x <= x + cw && mouse.y >= y0 && mouse.y <= y0 + ch;
+    ctx.fillStyle = hover ? 'rgba(16,26,52,0.95)' : 'rgba(8,12,30,0.92)';
+    ctx.strokeStyle = u.color; ctx.lineWidth = hover ? 3 : 2;
+    ctx.shadowColor = u.color; ctx.shadowBlur = hover ? 22 : 10;
+    ctx.beginPath(); ctx.roundRect(x, y0, cw, ch, 10); ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = u.color; ctx.lineWidth = 2;
+    poly(x + cw / 2, y0 + 38, 16, 6, G.time * 1.4);
+    ctx.stroke();
+    ctx.fillStyle = u.color;
+    ctx.beginPath(); ctx.arc(x + cw / 2, y0 + 38, 4, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 20px "Segoe UI", sans-serif';
+    ctx.fillText(u.name, x + cw / 2, y0 + 84);
+    ctx.fillStyle = 'rgba(205,240,255,0.9)';
+    ctx.font = '13px "Segoe UI", sans-serif';
+    ctx.fillText(u.desc, x + cw / 2, y0 + 110);
+    ctx.fillStyle = 'rgba(160,200,220,0.6)';
+    ctx.font = 'bold 13px "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('[' + (i + 1) + ']', x + 12, y0 + 24);
+    ctx.textAlign = 'center';
+    if (G.upgrades[u.id]) {
+      ctx.fillStyle = '#ffd700';
+      ctx.font = 'bold 12px "Segoe UI", sans-serif';
+      ctx.fillText('OWNED ×' + G.upgrades[u.id], x + cw / 2, y0 + 136);
+    }
+  }
+  ctx.restore();
+}
 function drawPaused() {
   ctx.save();
   ctx.fillStyle = 'rgba(2,4,12,0.5)';
@@ -857,6 +1001,7 @@ function draw() {
   if (G.state === 'title') { drawTitle(); return; }
   drawHUD();
   if (G.state === 'over') drawOver();
+  if (G.state === 'draft') drawDraft();
   if (G.state === 'paused') drawPaused();
 }
 
@@ -911,6 +1056,7 @@ function shotScene() {
       step(1 / 60);
     }
     mouse.down = false; keys['KeyA'] = false; keys['KeyW'] = false;
+    if (G.state === 'draft') { G.state = 'playing'; G.draft = null; }
     G.waveBanner = 0;
   } else if (SHOT === 'boss') {
     startGame();
@@ -935,6 +1081,16 @@ function shotScene() {
     mouse.down = false; keys['KeyD'] = false; keys['KeyA'] = false; keys['KeyS'] = false; keys['KeyW'] = false;
     if (G.state === 'draft') G.state = 'playing';
     G.waveBanner = 0;
+  } else if (SHOT === 'draft') {
+    startGame();
+    enemies = [];
+    G.wave = 2; G.score = 3350; G.kills = 19;
+    player.hp = 74; player.weapon = 'twin'; player.weaponTimer = 6;
+    G.upgrades = { dmg: 1 };
+    player.dmgMul = 1.5;
+    openDraft();
+    for (let i = 0; i < 10; i++) step(1 / 60);
+    G.state = 'draft'; // step() leaves draft untouched; keep the overlay up
   } else if (SHOT === 'end') {
     startGame();
     enemies = [];
@@ -953,6 +1109,7 @@ function shotScene() {
   draw();
   window.__shot_ready = true;
 }
+addEventListener('blur', () => { if (G.state === 'playing') G.state = 'paused'; });
 if (SHOT) shotScene();
 else requestAnimationFrame(frame);
 </script>
