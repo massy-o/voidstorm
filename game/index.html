@@ -273,16 +273,34 @@ function startWave(n) {
   } else {
     sfx.wave();
     G.msg = '';
-    let count = 4 + n * 2;
-    for (let i = 0; i < count; i++) {
-      let type = 'chaser';
-      const roll = rng();
-      if (n >= 4 && roll < 0.13) type = 'sniper';
-      else if (n >= 3 && roll < 0.27) type = 'splitter';
-      else if (n >= 3 && roll < 0.40) type = 'orbiter';
-      else if (n >= 2 && roll < 0.54) type = 'charger';
-      else if (n >= 2 && roll < 0.70) type = 'spinner';
-      spawnEnemy(type);
+    const special = n >= 3 && rng() < 0.3 ? rng() : -1; // special formation roll
+    if (special >= 0 && special < 0.4) { // SWARM: a flood of minis
+      G.msg = '⚠ SWARM INBOUND ⚠';
+      const count = 10 + n;
+      for (let i = 0; i < count; i++) spawnEnemy('mini');
+    } else if (special >= 0 && special < 0.7) { // SNIPER LINE
+      G.msg = '⚠ SNIPER LINE ⚠';
+      const count = 4 + Math.ceil(n / 2);
+      for (let i = 0; i < count; i++) spawnEnemy('sniper');
+    } else if (special >= 0) { // ENCIRCLEMENT: a ring of chasers closes in
+      G.msg = '⚠ ENCIRCLEMENT ⚠';
+      const count = 8 + Math.floor(n / 2);
+      for (let i = 0; i < count; i++) {
+        const ang = (i / count) * TAU;
+        spawnEnemy('chaser', W / 2 + Math.cos(ang) * 340, H / 2 + Math.sin(ang) * 205);
+      }
+    } else {
+      let count = 4 + n * 2;
+      for (let i = 0; i < count; i++) {
+        let type = 'chaser';
+        const roll = rng();
+        if (n >= 4 && roll < 0.13) type = 'sniper';
+        else if (n >= 3 && roll < 0.27) type = 'splitter';
+        else if (n >= 3 && roll < 0.40) type = 'orbiter';
+        else if (n >= 2 && roll < 0.54) type = 'charger';
+        else if (n >= 2 && roll < 0.70) type = 'spinner';
+        spawnEnemy(type);
+      }
     }
   }
 }
@@ -498,22 +516,34 @@ function step(dt) {
         beep(880, 0.1, 'sine', 0.05, 320);
       }
     } else if (e.type === 'warden') {
+      if (!e.enraged && e.hp <= e.maxhp * 0.35) { // phase 2: ENRAGE
+        e.enraged = true;
+        e.spd = Math.round(e.spd * 1.6);
+        e.color = '#ff2255';
+        G.msg = '⚠ WARDEN ENRAGED ⚠';
+        G.shake = Math.max(G.shake, 10);
+        burst(e.x, e.y, '#ff2255', 26, 280);
+        ring(e.x, e.y, '#ff2255');
+        beep(80, 0.5, 'sawtooth', 0.16, 40);
+      }
       e.x += ux * e.spd * dt; e.y += uy * e.spd * dt;
-      e.rot += dt * 0.7;
+      e.rot += dt * (e.enraged ? 1.3 : 0.7);
       e.burstCd -= dt;
       if (e.burstCd <= 0) {
-        e.burstCd = rnd(2.4, 3.6);
+        e.burstCd = e.enraged ? rnd(1.7, 2.5) : rnd(2.4, 3.6);
         const base = rnd(0, TAU);
-        for (let k = 0; k < 14; k++) {
-          const a = base + (k / 14) * TAU;
+        const ringN = e.enraged ? 18 : 14;
+        for (let k = 0; k < ringN; k++) {
+          const a = base + (k / ringN) * TAU;
           ebullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 165, vy: Math.sin(a) * 165, r: 4.5, life: 4.2, color: '#ff1744' });
         }
         beep(140, 0.3, 'sawtooth', 0.10, 60);
         if (enemies.length < 7) spawnEnemy('mini', e.x + rnd(-30, 30), e.y + rnd(-30, 30));
+        if (e.enraged && enemies.length < 8) spawnEnemy('mini', e.x + rnd(-30, 30), e.y + rnd(-30, 30));
       }
       e.fireCd -= dt;
       if (e.fireCd <= 0) {
-        e.fireCd = 1.5;
+        e.fireCd = e.enraged ? 1.05 : 1.5;
         for (let k = -1; k <= 1; k++) {
           const a = Math.atan2(dy, dx) + k * 0.16;
           ebullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 265, vy: Math.sin(a) * 265, r: 4.5, life: 3.4, color: '#ffb300' });
