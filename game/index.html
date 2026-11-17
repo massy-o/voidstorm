@@ -178,12 +178,13 @@ const WEAPONS = {
   twin:   { name: 'TWIN',   color: '#7cff4f' },
   spread: { name: 'SPREAD', color: '#ffb300' },
   rapid:  { name: 'RAPID',  color: '#ff2bd6' },
+  lance:  { name: 'LANCE',  color: '#e8fbff' },
 };
 function dropPickup(x, y) {
   const roll = rng();
   if (roll < 0.16) {
-    const kinds = ['twin', 'spread', 'rapid'];
-    pickups.push({ x, y, kind: 'weapon', weapon: kinds[rndi(0, 2)], r: 10, t: rnd(0, TAU), life: 11 });
+    const kinds = ['twin', 'spread', 'rapid', 'lance'];
+    pickups.push({ x, y, kind: 'weapon', weapon: kinds[rndi(0, 3)], r: 10, t: rnd(0, TAU), life: 11 });
   } else if (roll < 0.24 && player.hp < player.maxhp) {
     pickups.push({ x, y, kind: 'health', r: 10, t: rnd(0, TAU), life: 11 });
   }
@@ -337,6 +338,11 @@ function playerFire(dt) {
   } else if (player.weapon === 'rapid') {
     fireBullet(a + rnd(-0.045, 0.045), 680, player.dmgMul);
     player.fireCd = 0.075 * player.fireMul;
+  } else if (player.weapon === 'lance') {
+    bullets.push({ x: player.x + Math.cos(a) * 16, y: player.y + Math.sin(a) * 16, vx: Math.cos(a) * 920, vy: Math.sin(a) * 920, r: 4.6, dmg: 3 * player.dmgMul, life: 0.65, color: WEAPONS.lance.color, pierce: true, hit: [] });
+    player.fireCd = 0.52 * player.fireMul;
+    G.shake = Math.max(G.shake, 2.5);
+    beep(180, 0.18, 'sawtooth', 0.07, 1400);
   } else {
     fireBullet(a, 640, player.dmgMul);
     player.fireCd = 0.16 * player.fireMul;
@@ -519,11 +525,13 @@ function step(dt) {
     for (let j = enemies.length - 1; j >= 0; j--) {
       const e = enemies[j];
       if (dist2(b.x, b.y, e.x, e.y) < (b.r + e.r) * (b.r + e.r)) {
+        if (b.hit && b.hit.indexOf(e) >= 0) continue; // LANCE already pierced this one
         e.hp -= b.dmg; e.flash = 0.09;
         burst(b.x, b.y, e.color, 3, 130);
         sfx.hit();
+        if (e.hp <= 0) { killEnemy(e, j); if (!b.pierce) consumed = true; break; }
+        if (b.pierce) { b.hit.push(e); continue; }
         consumed = true;
-        if (e.hp <= 0) killEnemy(e, j);
         break;
       }
     }
