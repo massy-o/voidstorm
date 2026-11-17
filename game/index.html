@@ -368,6 +368,7 @@ function killEnemy(e, idx) {
   } else {
     G.shake = Math.max(G.shake, 3.5);
   }
+  if (e.elite) G.hitstop = Math.max(G.hitstop, 0.05);
   sfx.boom();
   if (e.type === 'splitter') {
     for (let i = 0; i < 2; i++) spawnEnemy('mini', e.x + rnd(-14, 14), e.y + rnd(-14, 14));
@@ -1153,6 +1154,11 @@ function shotScene() {
     spawnEnemy('chaser', W * 0.2, H * 0.24);
     spawnEnemy('sniper', W * 0.86, H * 0.16);
     spawnEnemy('mini', W * 0.55, H * 0.4);
+    spawnEnemy('charger', W * 0.3, H * 0.84);
+    spawnEnemy('orbiter', W * 0.56, H * 0.18);
+    spawnEnemy('chaser', W * 0.8, H * 0.44);
+    const eliteRef = enemies[enemies.length - 1];
+    if (!eliteRef.elite) { eliteRef.elite = true; eliteRef.hp = eliteRef.maxhp = Math.ceil(eliteRef.hp * 3); eliteRef.r += 3; eliteRef.score *= 3; }
     pickups.push({ x: W * 0.3, y: H * 0.36, kind: 'weapon', weapon: 'rapid', r: 10, t: 1, life: 10 });
     // scripted combat: aim at the nearest foe and fire while strafing
     for (let i = 0; i < 110; i++) {
@@ -1174,12 +1180,14 @@ function shotScene() {
     player.x = W * 0.34; player.y = H * 0.64;
     spawnEnemy('warden', W * 0.64, H * 0.32);
     const wd = enemies[enemies.length - 1];
-    wd.hp = 52; wd.warp = 0; wd.burstCd = 1.0; wd.fireCd = 0.5;
+    wd.hp = 30; wd.warp = 0; wd.burstCd = 1.0; wd.fireCd = 0.5; // below the 35% enrage line
     spawnEnemy('mini', W * 0.8, H * 0.62);
     spawnEnemy('spinner', W * 0.16, H * 0.2);
     enemies.forEach((e) => { e.warp = 0; });
     pickups.push({ x: W * 0.5, y: H * 0.82, kind: 'health', r: 10, t: 1, life: 10 });
     for (let i = 0; i < 120; i++) {
+      if (i === 60) wd.hp = Math.max(wd.hp, 24); // keep the enraged Warden alive for the shot
+      if (i === 110) detonate(); // NOVA blast: clears the bullet rings, big shockwave in frame
       mouse.x = wd.x; mouse.y = wd.y;
       mouse.down = i % 4 !== 0;
       keys['KeyD'] = i % 40 < 20; keys['KeyA'] = i % 40 >= 20;
