@@ -117,6 +117,9 @@ let parts = [];     // particles
 let pickups = [];
 let stars = [];
 for (let i = 0; i < 130; i++) stars.push({ x: rnd(0, W), y: rnd(0, H), z: rnd(0.25, 1), tw: rnd(0, TAU) });
+let nebulae = [];
+const NEBC = ['0,229,255', '255,43,214', '185,103,255', '79,195,255', '255,122,24', '124,255,79'];
+for (let i = 0; i < 6; i++) nebulae.push({ x: rnd(0, W), y: rnd(0, H), r: rnd(130, 270), c: NEBC[i % NEBC.length] });
 
 /* ---------- input ---------- */
 const keys = {};
@@ -181,6 +184,7 @@ const ETYPES = {
   splitter:{ hp: 6,  r: 17, spd: 55,  score: 200, color: '#b967ff', sides: 6 },
   mini:    { hp: 1,  r: 8,  spd: 128, score: 50,  color: '#e879ff', sides: 3 },
   sniper:  { hp: 4,  r: 13, spd: 74,  score: 250, color: '#4fc3ff', sides: 4 },
+  charger: { hp: 4,  r: 13, spd: 80,  score: 200, color: '#ff7a18', sides: 5 },
   warden:  { hp: 90, r: 44, spd: 30,  score: 3000, color: '#ff1744', sides: 8 },
 };
 function spawnPos() {
@@ -207,6 +211,7 @@ function spawnEnemy(type, x, y) {
     rot: rnd(0, TAU), rotSpd: rnd(-2.4, 2.4),
     fireCd: rnd(1.2, 2.6), tele: 0, burstCd: rnd(2.5, 4), phase: rnd(0, TAU),
     flash: 0, wob: rnd(0, TAU),
+    warp: 0.35, mode: 'stalk', modeT: rnd(0.2, 0.9), dvx: 0, dvy: 0,
   });
 }
 function startWave(n) {
@@ -226,9 +231,10 @@ function startWave(n) {
     for (let i = 0; i < count; i++) {
       let type = 'chaser';
       const roll = rng();
-      if (n >= 4 && roll < 0.16) type = 'sniper';
-      else if (n >= 3 && roll < 0.38) type = 'splitter';
-      else if (n >= 2 && roll < 0.62) type = 'spinner';
+      if (n >= 4 && roll < 0.14) type = 'sniper';
+      else if (n >= 3 && roll < 0.30) type = 'splitter';
+      else if (n >= 2 && roll < 0.46) type = 'charger';
+      else if (n >= 2 && roll < 0.66) type = 'spinner';
       spawnEnemy(type);
     }
   }
@@ -389,7 +395,31 @@ function step(dt) {
     const dx = player.x - e.x, dy = player.y - e.y;
     const d = Math.hypot(dx, dy) || 1;
     const ux = dx / d, uy = dy / d;
-    if (e.type === 'sniper') {
+    if (e.warp > 0) {
+      e.warp -= dt; // warp-in: visible but not yet dangerous
+    } else if (e.type === 'charger') {
+      e.modeT -= dt;
+      if (e.mode === 'stalk') {
+        e.x += ux * e.spd * dt; e.y += uy * e.spd * dt;
+        e.rot = Math.atan2(dy, dx);
+        if (d < 320 && e.modeT <= 0) { e.mode = 'aim'; e.modeT = 0.55; e.tele = 1; }
+      } else if (e.mode === 'aim') {
+        e.rot = Math.atan2(dy, dx);
+        e.x += Math.cos(e.wob * 40) * 5 * dt; // shiver while locking on
+        if (e.modeT <= 0) {
+          e.mode = 'dash'; e.modeT = 0.38; e.tele = 0;
+          e.dvx = Math.cos(e.rot) * 540; e.dvy = Math.sin(e.rot) * 540;
+          beep(220, 0.14, 'square', 0.06, 660);
+        }
+      } else if (e.mode === 'dash') {
+        e.x += e.dvx * dt; e.y += e.dvy * dt;
+        parts.push({ x: e.x, y: e.y, vx: 0, vy: 0, life: 0.18, max: 0.18, color: e.color, size: 8, ghost: true });
+        if (e.modeT <= 0) { e.mode = 'cool'; e.modeT = 0.85; }
+      } else { // cool
+        e.x += ux * e.spd * 0.35 * dt; e.y += uy * e.spd * 0.35 * dt;
+        if (e.modeT <= 0) { e.mode = 'stalk'; e.modeT = rnd(0.1, 0.5); }
+      }
+    } else if (e.type === 'sniper') {
       const want = 260;
       const dir = d > want + 30 ? 1 : (d < want - 30 ? -1 : 0);
       e.x += (ux * e.spd * dir + -uy * Math.sin(e.wob) * 26) * dt;
@@ -435,7 +465,7 @@ function step(dt) {
     }
     e.x = clamp(e.x, e.r, W - e.r); e.y = clamp(e.y, e.r, H - e.r);
     /* touch damage */
-    if (player.alive && dist2(e.x, e.y, player.x, player.y) < (e.r + player.r - 3) * (e.r + player.r - 3)) {
+    if (e.warp <= 0 && player.alive && dist2(e.x, e.y, player.x, player.y) < (e.r + player.r - 3) * (e.r + player.r - 3)) {
       hurtPlayer(e.type === 'warden' ? 18 : 11);
       const kb = 260;
       player.vx += ux * kb; player.vy += uy * kb;
@@ -504,6 +534,14 @@ function drawBackground() {
   g.addColorStop(1, '#03040c');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
+  // soft nebula clouds
+  for (const nb of nebulae) {
+    const ng = ctx.createRadialGradient(nb.x, nb.y, 0, nb.x, nb.y, nb.r);
+    ng.addColorStop(0, 'rgba(' + nb.c + ',0.075)');
+    ng.addColorStop(1, 'rgba(' + nb.c + ',0)');
+    ctx.fillStyle = ng;
+    ctx.fillRect(nb.x - nb.r, nb.y - nb.r, nb.r * 2, nb.r * 2);
+  }
   // perspective grid floor
   ctx.strokeStyle = 'rgba(0,229,255,0.10)';
   ctx.lineWidth = 1;
@@ -553,6 +591,12 @@ function drawEnemies() {
   for (const e of enemies) {
     ctx.save();
     ctx.translate(e.x, e.y);
+    if (e.warp > 0) { // warp-in: shrink + fade while materialising
+      const wf = clamp(e.warp / 0.35, 0, 1);
+      ctx.globalAlpha = 1 - wf * 0.65;
+      const ws = 1 - wf * 0.55;
+      ctx.scale(ws, ws);
+    }
     ctx.shadowColor = e.color; ctx.shadowBlur = 14;
     ctx.strokeStyle = e.flash > 0 ? '#ffffff' : e.color;
     ctx.fillStyle = 'rgba(10,8,24,0.85)';
@@ -567,9 +611,10 @@ function drawEnemies() {
     ctx.fillStyle = e.flash > 0 ? '#fff' : e.color;
     ctx.beginPath(); ctx.arc(0, 0, Math.max(2.4, e.r * 0.16), 0, TAU); ctx.fill();
     ctx.restore();
-    if (e.tele) { // sniper telegraph
+    if (e.tele) { // telegraph (sniper shot / charger dash)
       ctx.save();
-      ctx.strokeStyle = 'rgba(79,195,255,0.5)';
+      ctx.strokeStyle = e.color;
+      ctx.globalAlpha = 0.45;
       ctx.setLineDash([6, 8]);
       ctx.beginPath(); ctx.moveTo(e.x, e.y); ctx.lineTo(player.x, player.y); ctx.stroke();
       ctx.restore();
@@ -585,6 +630,9 @@ function drawEnemies() {
 function drawBullets() {
   for (const b of bullets) {
     ctx.save();
+    ctx.strokeStyle = b.color; ctx.globalAlpha = 0.45; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(b.x - b.vx * 0.024, b.y - b.vy * 0.024); ctx.lineTo(b.x, b.y); ctx.stroke();
+    ctx.globalAlpha = 1;
     ctx.shadowColor = b.color; ctx.shadowBlur = 12;
     ctx.fillStyle = b.color;
     ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, TAU); ctx.fill();
@@ -697,6 +745,13 @@ function drawHUD() {
   ctx.textAlign = 'left';
   ctx.fillStyle = 'rgba(200,240,255,0.6)';
   ctx.fillText('HOSTILES ' + enemies.length, 16, H - 12);
+  // low-hull warning vignette
+  if (G.state === 'playing' && player.hp <= 30 && player.alive) {
+    const a = 0.20 + 0.16 * Math.sin(G.time * 6);
+    ctx.strokeStyle = 'rgba(255,30,60,' + a.toFixed(3) + ')';
+    ctx.lineWidth = 24;
+    ctx.strokeRect(0, 0, W, H);
+  }
   ctx.restore();
   // wave banner
   if (G.waveBanner > 0 && G.state === 'playing') {
@@ -856,6 +911,29 @@ function shotScene() {
       step(1 / 60);
     }
     mouse.down = false; keys['KeyA'] = false; keys['KeyW'] = false;
+    G.waveBanner = 0;
+  } else if (SHOT === 'boss') {
+    startGame();
+    enemies = []; ebullets = [];
+    G.wave = 5; G.score = 9650; G.kills = 41; G.combo = 3; G.comboTimer = 2.2;
+    player.hp = 54; player.weapon = 'rapid'; player.weaponTimer = 9;
+    player.x = W * 0.34; player.y = H * 0.64;
+    spawnEnemy('warden', W * 0.64, H * 0.32);
+    const wd = enemies[enemies.length - 1];
+    wd.hp = 52; wd.warp = 0; wd.burstCd = 1.0; wd.fireCd = 0.5;
+    spawnEnemy('mini', W * 0.8, H * 0.62);
+    spawnEnemy('spinner', W * 0.16, H * 0.2);
+    enemies.forEach((e) => { e.warp = 0; });
+    pickups.push({ x: W * 0.5, y: H * 0.82, kind: 'health', r: 10, t: 1, life: 10 });
+    for (let i = 0; i < 120; i++) {
+      mouse.x = wd.x; mouse.y = wd.y;
+      mouse.down = i % 4 !== 0;
+      keys['KeyD'] = i % 40 < 20; keys['KeyA'] = i % 40 >= 20;
+      keys['KeyS'] = i % 26 < 13; keys['KeyW'] = i % 26 >= 13;
+      step(1 / 60);
+    }
+    mouse.down = false; keys['KeyD'] = false; keys['KeyA'] = false; keys['KeyS'] = false; keys['KeyW'] = false;
+    if (G.state === 'draft') G.state = 'playing';
     G.waveBanner = 0;
   } else if (SHOT === 'end') {
     startGame();
