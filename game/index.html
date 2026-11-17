@@ -15,7 +15,7 @@
 <body>
 <div id="wrap">
   <canvas id="cv" width="960" height="540"></canvas>
-  <div id="hint">WASD MOVE &nbsp;·&nbsp; MOUSE AIM &nbsp;·&nbsp; HOLD TO FIRE &nbsp;·&nbsp; SHIFT / SPACE DASH &nbsp;·&nbsp; P PAUSE</div>
+  <div id="hint">WASD MOVE &nbsp;·&nbsp; MOUSE AIM &nbsp;·&nbsp; HOLD TO FIRE &nbsp;·&nbsp; SHIFT / SPACE DASH &nbsp;·&nbsp; E NOVA BOMB &nbsp;·&nbsp; P PAUSE</div>
 </div>
 <script>
 'use strict';
@@ -132,6 +132,7 @@ let mouse = { x: W / 2, y: H / 4, down: false };
 addEventListener('keydown', (e) => {
   keys[e.code] = true;
   if (e.code === 'KeyM') G.muted = !G.muted;
+  if (e.code === 'KeyE') detonate();
   if (e.code === 'Space') e.preventDefault();
   if (G.state === 'title' && (e.code === 'Enter' || e.code === 'Space')) startGame();
   else if (G.state === 'over' && (e.code === 'Enter' || e.code === 'KeyR' || e.code === 'Space')) startGame();
@@ -146,10 +147,12 @@ function canvasPos(e) {
   return { x: (e.clientX - r.left) * (W / r.width), y: (e.clientY - r.top) * (H / r.height) };
 }
 cv.addEventListener('mousemove', (e) => { const p = canvasPos(e); mouse.x = p.x; mouse.y = p.y; });
+cv.addEventListener('contextmenu', (e) => e.preventDefault());
 cv.addEventListener('mousedown', (e) => {
   audio();
   const p = canvasPos(e);
   mouse.x = p.x; mouse.y = p.y;
+  if (e.button === 2) { detonate(); return; }
   if (G.state === 'draft') { handleDraftClick(p.x, p.y); return; }
   mouse.down = true;
   if (G.state === 'title' || G.state === 'over') startGame();
@@ -239,7 +242,7 @@ function spawnPos() {
 function spawnEnemy(type, x, y) {
   const d = ETYPES[type];
   const p = (x === undefined) ? spawnPos() : { x, y };
-  enemies.push({
+  const ne = {
     type, x: p.x, y: p.y, vx: 0, vy: 0,
     hp: d.hp, maxhp: d.hp, r: d.r, spd: d.spd * rnd(0.9, 1.1),
     score: d.score, color: d.color, sides: d.sides,
@@ -288,6 +291,7 @@ function startGame() {
   player.fireCd = 0; player.dashCd = 0; player.dashTime = 0; player.invuln = 0;
   player.dmgMul = 1; player.fireMul = 1; player.spdMul = 1; player.dashMul = 1;
   player.magnet = 0; player.shieldN = 0;
+  player.bombs = 1;
   G.upgrades = {}; G.draft = null;
   startWave(1);
 }
@@ -586,6 +590,7 @@ function step(dt) {
     }
     if (player.alive && dist2(p.x, p.y, player.x, player.y) < (p.r + player.r + 4) * (p.r + player.r + 4)) {
       if (p.kind === 'weapon') { player.weapon = p.weapon; player.weaponTimer = 12; G.msg = WEAPONS[p.weapon].name + ' CORE ONLINE'; }
+      else if (p.kind === 'bomb') { player.bombs = Math.min(3, player.bombs + 1); G.msg = 'NOVA ARMED — PRESS E'; }
       else { player.hp = Math.min(player.maxhp, player.hp + 26); G.msg = '+26 HULL'; }
       G.waveBanner = Math.max(G.waveBanner, 0.9);
       sfx.pickup();
@@ -774,12 +779,18 @@ function drawBullets() {
 function drawPickups() {
   for (const p of pickups) {
     const bob = Math.sin(p.t) * 3;
-    const col = p.kind === 'weapon' ? WEAPONS[p.weapon].color : '#7cff4f';
+    const col = p.kind === 'weapon' ? WEAPONS[p.weapon].color : (p.kind === 'bomb' ? '#ff9f1c' : '#7cff4f');
     ctx.save();
     ctx.translate(p.x, p.y + bob);
     ctx.shadowColor = col; ctx.shadowBlur = 15;
     ctx.strokeStyle = col; ctx.lineWidth = 2;
-    if (p.kind === 'weapon') {
+    if (p.kind === 'bomb') {
+      poly(0, 0, p.r + 2, 8, p.t * 0.5); ctx.stroke();
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(0, 0, 4.6, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#fff3e0';
+      ctx.beginPath(); ctx.arc(0, 0, 2, 0, TAU); ctx.fill();
+    } else if (p.kind === 'weapon') {
       poly(0, 0, p.r, 6, p.t * 0.4); ctx.stroke();
       ctx.fillStyle = col;
       ctx.beginPath(); ctx.arc(0, 0, 3.6, 0, TAU); ctx.fill();
@@ -890,6 +901,10 @@ function drawHUD() {
     ctx.font = 'bold 12px "Segoe UI", sans-serif';
     ctx.fillText('◈ SHIELD ×' + player.shieldN, W - 16, 80);
   }
+  ctx.textAlign = 'right';
+  ctx.fillStyle = player.bombs > 0 ? '#ff9f1c' : 'rgba(160,200,220,0.4)';
+  ctx.font = 'bold 12px "Segoe UI", sans-serif';
+  ctx.fillText('✹ NOVA ×' + player.bombs + ' [E]', W - 16, 98);
   ctx.restore();
   // wave banner
   if (G.waveBanner > 0 && G.state === 'playing') {
@@ -926,7 +941,7 @@ function drawTitle() {
   ctx.fillText('Chain combos, seize weapon cores, and down the WARDEN every 5th wave.', W / 2, H * 0.36 + 100);
   ctx.fillStyle = 'rgba(160,220,245,0.7)';
   ctx.font = '13px "Segoe UI", sans-serif';
-  ctx.fillText('WASD / ARROWS — move      MOUSE — aim      HOLD CLICK — fire      SHIFT / SPACE — dash      P — pause      M — mute', W / 2, H * 0.36 + 138);
+  ctx.fillText('WASD — move      MOUSE — aim      HOLD CLICK — fire      SHIFT — dash      E — nova bomb      P — pause      M — mute', W / 2, H * 0.36 + 138);
   ctx.fillStyle = '#7cff4f';
   ctx.font = 'bold 21px "Segoe UI", sans-serif';
   ctx.globalAlpha = 0.6 + 0.4 * Math.sin(G.time * 4);
