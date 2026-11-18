@@ -777,13 +777,13 @@ function drawPlayer() {
   const img = SPR.player;
   if (img && img.naturalWidth) {
     ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 14;
-    const S = 64;
+    const S = 76;
     ctx.drawImage(img, -S / 2, -S / 2, S, S);
     ctx.shadowBlur = 0;
   }
   ctx.restore();
 }
-const DS = { chaser: 4.4, mini: 4.4, spinner: 3.6, splitter: 3.8, sniper: 3.9, charger: 3.9, orbiter: 3.9, warden: 3.9 };
+const DS = { chaser: 5.3, mini: 5.3, spinner: 4.3, splitter: 4.6, sniper: 4.7, charger: 4.7, orbiter: 4.7, warden: 4.7 };
 function spriteFor(type) {
   if (type === 'chaser' || type === 'mini' || type === 'orbiter' || type === 'warden') {
     const rate = type === 'orbiter' ? 7 : 2.2; // bees flap fast; tentacles sway slowly
@@ -1240,15 +1240,15 @@ function shotScene() {
     G.wave = 3; G.score = 4200; G.combo = 4; G.comboTimer = 2.4; G.kills = 27;
     player.hp = 68; player.weapon = 'spread'; player.weaponTimer = 8;
     player.x = W * 0.42; player.y = H * 0.58;
-    spawnEnemy('spinner', W * 0.66, H * 0.3);
-    spawnEnemy('splitter', W * 0.74, H * 0.62);
+    spawnEnemy('spinner', W * 0.62, H * 0.3);
+    spawnEnemy('splitter', W * 0.7, H * 0.62);
     spawnEnemy('chaser', W * 0.6, H * 0.78);
     spawnEnemy('chaser', W * 0.2, H * 0.24);
-    spawnEnemy('sniper', W * 0.86, H * 0.16);
+    spawnEnemy('sniper', W * 0.82, H * 0.16);
     spawnEnemy('mini', W * 0.55, H * 0.4);
     spawnEnemy('charger', W * 0.3, H * 0.84);
     spawnEnemy('orbiter', W * 0.56, H * 0.18);
-    spawnEnemy('chaser', W * 0.8, H * 0.44);
+    spawnEnemy('chaser', W * 0.76, H * 0.44);
     const eliteRef = enemies[enemies.length - 1];
     if (!eliteRef.elite) { eliteRef.elite = true; eliteRef.hp = eliteRef.maxhp = Math.ceil(eliteRef.hp * 3); eliteRef.r += 3; eliteRef.score *= 3; }
     pickups.push({ x: W * 0.3, y: H * 0.36, kind: 'weapon', weapon: 'rapid', r: 10, t: 1, life: 10 });
@@ -1283,14 +1283,15 @@ function shotScene() {
     pickups.push({ x: W * 0.5, y: H * 0.82, kind: 'health', r: 10, t: 1, life: 10 });
     for (let i = 0; i < 120; i++) {
       if (i === 60) wd.hp = Math.max(wd.hp, 24); // keep the enraged Warden alive for the shot
-      if (i === 110) detonate(); // NOVA blast: clears the bullet rings, big shockwave in frame
       mouse.x = wd.x; mouse.y = wd.y;
-      mouse.down = i % 4 !== 0;
+      mouse.down = i % 4 !== 0 && i < 84; // cease fire early: no hit-flash may cover the Warden at capture
       keys['KeyD'] = i % 40 < 20; keys['KeyA'] = i % 40 >= 20;
       keys['KeyS'] = i % 26 < 13; keys['KeyW'] = i % 26 >= 13;
       step(1 / 60);
     }
     mouse.down = false; keys['KeyD'] = false; keys['KeyA'] = false; keys['KeyS'] = false; keys['KeyW'] = false;
+    wd.flash = 0; G.flash = 0; G.shake = 0; // capture the Warden clean: no flash, tint or shake
+    parts = parts.filter((p) => !p.text); // drop score popups so the boss owns the frame
     if (G.state === 'draft') G.state = 'playing';
     G.waveBanner = 0;
   } else if (SHOT === 'draft') {
